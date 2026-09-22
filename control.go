@@ -327,6 +327,8 @@ func (c *ControlPlane) reserveNodes(run Run, nodes []Node) error {
 	defer c.mu.Unlock()
 	if c.active == nil {
 		reserved := run
+		// Reconciliation must not rewrite a dispatch receipt retained by its caller.
+		reserved.Nodes = append([]string(nil), run.Nodes...)
 		reserved.Answers = nil
 		reserved.Errors = nil
 		c.active = &reserved

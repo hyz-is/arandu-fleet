@@ -104,6 +104,9 @@ type HTTPWorker struct {
 	// on a port is describable instead of unsupported.
 	Port   func(Node) int
 	Client *http.Client
+	// SubmitTimeout bounds job admission separately from status and cancellation.
+	// Zero preserves Client.Timeout; the request context can impose a shorter limit.
+	SubmitTimeout time.Duration
 }
 
 // NewHTTPWorker returns a client with the timeout the node API is designed for.
@@ -126,7 +129,19 @@ func (w *HTTPWorker) Submit(ctx context.Context, n Node, job Job) ([]byte, error
 	if err != nil {
 		return nil, err
 	}
-	return w.call(ctx, n, http.MethodPost, "/jobs", body)
+	if w.SubmitTimeout < 0 {
+		return nil, errors.New("fleet: submit timeout must not be negative")
+	}
+	if w.SubmitTimeout == 0 {
+		return w.call(ctx, n, http.MethodPost, "/jobs", body)
+	}
+	// Copy configuration, not the shared transport, so concurrent status and
+	// cancellation requests retain their original, shorter timeout.
+	client := *w.Client
+	client.Timeout = w.SubmitTimeout
+	submission := *w
+	submission.Client = &client
+	return submission.call(ctx, n, http.MethodPost, "/jobs", body)
 }
 
 func (w *HTTPWorker) Cancel(ctx context.Context, n Node, job Job) ([]byte, error) {
