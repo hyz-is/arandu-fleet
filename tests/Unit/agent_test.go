@@ -136,13 +136,13 @@ func TestTheNodeHoldsOneRunAtATime(t *testing.T) {
 
 func TestRepeatingTheSameRunningJobIsIdempotent(t *testing.T) {
 	a, server := agent(t)
-	body := `{"id":"same","action":"sleep","generation":7,"contract_version":"tayi.inference.v1","runtime_digest":"abc","model_recipe":"deepseek-v4.1-flash-q2_k","model_digest":"def"}`
+	body := `{"id":"same","action":"sleep","generation":7,"contract_version":"tayi.inference.v1","runtime_digest":"abc","model_recipe":"fixture-low-precision","model_digest":"def"}`
 	if got := call(t, server, "POST", "/jobs", bearerToken, body).StatusCode; got != http.StatusAccepted {
 		t.Fatalf("first submission answered %d", got)
 	}
 	run := a.Current()
 	firstPID := run.PID
-	if run.ModelRecipe != "deepseek-v4.1-flash-q2_k" || run.ModelDigest != "def" {
+	if run.ModelRecipe != "fixture-low-precision" || run.ModelDigest != "def" {
 		t.Fatalf("model identity was not persisted: %+v", run)
 	}
 	if got := call(t, server, "POST", "/jobs", bearerToken, body).StatusCode; got != http.StatusAccepted {
@@ -157,11 +157,11 @@ func TestRepeatingTheSameRunningJobIsIdempotent(t *testing.T) {
 
 func TestChangingModelIdentityIsNotAnIdempotentReplay(t *testing.T) {
 	a, server := agent(t)
-	body := `{"id":"model-fence","action":"sleep","generation":7,"contract_version":"tayi.mx.v1","runtime_digest":"runtime","model_recipe":"deepseek-v4.1-flash-q2_k","model_digest":"q2"}`
+	body := `{"id":"model-fence","action":"sleep","generation":7,"contract_version":"tayi.mx.v1","runtime_digest":"runtime","model_recipe":"fixture-low-precision","model_digest":"q2"}`
 	if got := call(t, server, "POST", "/jobs", bearerToken, body).StatusCode; got != http.StatusAccepted {
 		t.Fatalf("first submission answered %d", got)
 	}
-	drift := `{"id":"model-fence","action":"sleep","generation":7,"contract_version":"tayi.mx.v1","runtime_digest":"runtime","model_recipe":"deepseek-v4.1-flash-q2_k","model_digest":"different"}`
+	drift := `{"id":"model-fence","action":"sleep","generation":7,"contract_version":"tayi.mx.v1","runtime_digest":"runtime","model_recipe":"fixture-low-precision","model_digest":"different"}`
 	if got := call(t, server, "POST", "/jobs", bearerToken, drift).StatusCode; got != http.StatusConflict {
 		t.Fatalf("changed model identity answered %d, want 409", got)
 	}
