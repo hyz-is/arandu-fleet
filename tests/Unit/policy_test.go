@@ -9,6 +9,7 @@ import (
 	"github.com/arandu-io/framework/data"
 	"github.com/arandu-io/framework/security"
 	"github.com/arandu-io/hesape/database/model"
+	"github.com/arandu-io/hesape/database/query"
 
 	fleet "github.com/tayi-ai/arandu-fleet"
 )
@@ -129,21 +130,134 @@ func TestTheServiceRefusesBeforeReachingTheModel(t *testing.T) {
 	}
 }
 
+// recordingDB is a handle that runs nothing and remembers what it was asked to
+// run, compiled by the grammar of the nil handle.
+//
+// A table's settings are not fields of the query any more, so what this suite
+// read off the model is observed here in what the table does: the key it
+// writes, whether it asks the engine for an incremented one, and the tenant
+// every statement it compiles is stamped and filtered with.
+type recordingDB struct {
+	grammar     query.Grammar
+	processor   query.Processor
+	statements  []string
+	bindings    [][]any
+	incremented bool
+}
+
+func newRecordingDB() *recordingDB {
+	handle := nilHandle()
+	return &recordingDB{grammar: handle.GetQueryGrammar(), processor: handle.GetPostProcessor()}
+}
+
+func (r *recordingDB) record(statement string, bindings []any) {
+	r.statements = append(r.statements, statement)
+	r.bindings = append(r.bindings, bindings)
+}
+
+func (r *recordingDB) Select(_ context.Context, statement string, bindings []any, _ bool) ([]query.Record, error) {
+	r.record(statement, bindings)
+	return nil, nil
+}
+
+func (r *recordingDB) Insert(_ context.Context, statement string, bindings []any) (bool, error) {
+	r.record(statement, bindings)
+	return true, nil
+}
+
+func (r *recordingDB) Update(_ context.Context, statement string, bindings []any) (int64, error) {
+	r.record(statement, bindings)
+	return 0, nil
+}
+
+func (r *recordingDB) Delete(_ context.Context, statement string, bindings []any) (int64, error) {
+	r.record(statement, bindings)
+	return 0, nil
+}
+
+func (r *recordingDB) Statement(_ context.Context, statement string, bindings []any) (bool, error) {
+	r.record(statement, bindings)
+	return true, nil
+}
+
+func (r *recordingDB) GetQueryGrammar() query.Grammar { return r.grammar }
+
+func (r *recordingDB) GetPostProcessor() query.Processor { return recordingProcessor{r.processor, r} }
+
+// recordingProcessor notes that an insert asked the engine for the key it
+// generated, which a table whose key the application writes never does.
+type recordingProcessor struct {
+	query.Processor
+	db *recordingDB
+}
+
+func (p recordingProcessor) ProcessInsertGetID(_ context.Context, _ *query.Builder, statement string, values []any, _ string) (int64, error) {
+	p.db.incremented = true
+	p.db.record(statement, values)
+	return 1, nil
+}
+
+// boundTo reports that value is among the bindings of one statement.
+func boundTo(bindings []any, value string) bool {
+	for _, binding := range bindings {
+		if binding == value {
+			return true
+		}
+	}
+	return false
+}
+
 func TestFleetsReturnsAWiredTenantScopedModel(t *testing.T) {
 	t.Parallel()
 
-	rows := fleet.Fleets(nilHandle())
-	if rows.GetTable() != "fleets" {
-		t.Fatalf("Fleets table = %q, want fleets", rows.GetTable())
+	ctx := context.Background()
+	g := security.SystemGrant(fleet.FleetRecordCreate, "acme")
+	db := newRecordingDB()
+
+	row, err := fleet.Fleets(db).New()
+	if err != nil {
+		t.Fatalf("Fleets(db).New() = %v", err)
 	}
-	if rows.KeyType != "string" || rows.Incrementing {
-		t.Fatalf("Fleets key is type %q, incrementing %t; want application-generated text", rows.KeyType, rows.Incrementing)
+	table := row.Table()
+	if table == nil {
+		t.Fatal("Fleets returned an entity whose embedded Model is not wired to a table")
 	}
-	if rows.TenantColumn != "tenant_id" {
-		t.Fatalf("Fleets tenant column = %q, want tenant_id", rows.TenantColumn)
+	if table.Name() != "fleets" {
+		t.Fatalf("Fleets table = %q, want fleets", table.Name())
 	}
-	if model.ModelOf(rows.Entity) != rows {
-		t.Fatal("Fleets returned an entity whose embedded Model is not wired to it")
+	key := table.MorphModel(db)
+	if key.GetKeyName() != "id" || key.GetKeyType() != "string" {
+		t.Fatalf("Fleets key is %q of type %q; want application-generated text in id", key.GetKeyName(), key.GetKeyType())
+	}
+	if row.Exists() {
+		t.Fatal("Fleets(db).New() answered a row that already exists")
+	}
+
+	// The key is the application's: saving a new row writes the key it was
+	// given, and never asks the database for one. A table that incremented
+	// would read a number back over the identifier the service generated.
+	row.ID = "record-1"
+	if _, err := row.Save(ctx, g); err != nil {
+		t.Fatalf("saving a new fleet through the recording handle = %v", err)
+	}
+	if db.incremented || row.ID != "record-1" {
+		t.Fatalf("Fleets asked the engine for an incremented key, or replaced the one it was given with %q; want application-generated text", row.ID)
+	}
+	if len(db.statements) != 1 || !strings.Contains(db.statements[0], `"tenant_id"`) || !boundTo(db.bindings[0], "acme") {
+		t.Fatalf("Fleets wrote %q with %v; want one insert stamped with the Grant's tenant in tenant_id", db.statements, db.bindings)
+	}
+	if row.TenantID != "acme" {
+		t.Fatalf("the saved fleet carries tenant %q, want the Grant's", row.TenantID)
+	}
+
+	// Every read is filtered by the tenant column, with the Grant's tenant. A
+	// table declared global here would be a table one customer reads another's
+	// rows from, and nothing else in this package would say so.
+	if _, err := fleet.Fleets(db).WhereKey("record-1").First(ctx, g); err != nil {
+		t.Fatalf("reading a fleet through the recording handle = %v", err)
+	}
+	if len(db.statements) != 2 || !strings.Contains(db.statements[1], `"fleets"."tenant_id" = ?`) || !boundTo(db.bindings[1], "acme") {
+		t.Fatalf("Fleets read with %q and %v; want a select filtered by the Grant's tenant on tenant_id", db.statements[len(db.statements)-1], db.bindings[len(db.bindings)-1])
 	}
 }
 
@@ -152,7 +266,7 @@ func TestASystemGrantWithoutATenantReachesNothing(t *testing.T) {
 
 	// A system grant with no tenant names no customer. The Model refuses it
 	// while preparing the query, before the nil handle can issue a statement.
-	_, err := fleet.Fleets(nilHandle()).NewQuery().WhereKey("record-1").First(
+	_, err := fleet.Fleets(nilHandle()).WhereKey("record-1").First(
 		context.Background(), security.SystemGrant(fleet.FleetRecordView, ""))
 	if !errors.Is(err, model.ErrNoTenant) {
 		t.Fatalf("a system grant with no tenant returned %v, want ErrNoTenant", err)

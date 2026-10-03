@@ -7,7 +7,6 @@ import (
 	"github.com/arandu-io/framework/data"
 	"github.com/arandu-io/framework/security"
 	"github.com/arandu-io/framework/validation"
-	"github.com/arandu-io/hesape/database/model"
 )
 
 // Pagination bounds for List. A request that asks for everything gets the
@@ -88,11 +87,10 @@ func (s *FleetService) Create(ctx context.Context, actor security.Subject, in Cr
 	if proposed.ID, err = data.NewID(); err != nil {
 		return nil, err
 	}
-	instance, err := Fleets(s.db).NewInstance(nil, false)
+	candidate, err := Fleets(s.db).New()
 	if err != nil {
 		return nil, err
 	}
-	candidate := instance.Entity
 	candidate.ID = proposed.ID
 	candidate.TenantID = data.Tenant(g)
 	candidate.Name = proposed.Name
@@ -122,7 +120,7 @@ func (s *FleetService) Find(ctx context.Context, actor security.Subject, id stri
 		return nil, err
 	}
 
-	record, err := Fleets(s.db).NewQuery().WhereKey(id).First(ctx, g)
+	record, err := Fleets(s.db).WhereKey(id).First(ctx, g)
 	if err != nil {
 		return nil, err
 	}
@@ -166,19 +164,18 @@ func (s *FleetService) List(ctx context.Context, actor security.Subject, q data.
 		limit = maxLimit
 	}
 
-	rows := Fleets(s.db)
-	page := rows.NewQuery()
+	page := Fleets(s.db)
 	if q.Cursor != "" {
-		anchor, err := rows.NewQuery().WhereKey(q.Cursor).Value(ctx, g, column)
+		anchor, err := Fleets(s.db).WhereKey(q.Cursor).Value(ctx, g, column)
 		if err != nil {
 			return nil, err
 		}
 		if anchor == nil {
 			return nil, nil
 		}
-		page = page.Where(func(after *model.Builder[Fleet]) {
+		page = page.Where(func(after *FleetQuery) {
 			after.Where(column, ">", anchor).
-				OrWhere(func(equal *model.Builder[Fleet]) {
+				OrWhere(func(equal *FleetQuery) {
 					equal.Where(column, "=", anchor).Where("id", ">", q.Cursor)
 				})
 		})

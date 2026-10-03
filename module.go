@@ -9,6 +9,7 @@
 //	module.go      -> registration, routes, handlers and migrations
 //	config.go      -> what the application passes in
 //	model.go       -> the entity, and what it may answer with
+//	FleetQuery.go  -> the generated query of the entity, never edited
 //	policy.go      -> who may do what with a record
 //	service.go     -> the rules and Model access, after authorization
 //	inventory.go   -> the nodes of the fleet, and what makes one eligible
