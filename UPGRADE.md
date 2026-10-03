@@ -1,6 +1,6 @@
 # Upgrade Guide
 
-## Unreleased
+## v0.4.0
 
 ### The fleet record is a concrete type over the non-generic model
 
