@@ -10,6 +10,19 @@ a release is corrected by another release and never by moving a tag.
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking.** `Fleet` embeds the non-generic `model.Model`, and its table is
+  declared once beside it with `model.NewTable`. `Fleets` takes a `model.DB`
+  and returns the generated `*FleetQuery`; `Get` returns `FleetCollection` and
+  `New` replaces `NewInstance(nil, false)`. The fields and methods
+  `model.Model[Fleet]` promoted onto `Fleet` are gone, and `Exists` is a
+  method. `UPGRADE.md` names every symbol.
+- Requires Hesape `v0.48.0` and Framework `v0.50.2`; `arandu.mod.toml` declares
+  `framework = ">= 0.50"`. The store route reads `name` from the body of the
+  `POST` only, as Hesape now reads every `POST`. Routes, migrations, actions,
+  policy decisions, tenant scoping and the control plane are unchanged.
+
 ## [0.3.0] - 2026-09-15
 
 ### Added
