@@ -10,6 +10,22 @@ a release is corrected by another release and never by moving a tag.
 
 ## [Unreleased]
 
+### Added
+
+- `StopAndRelease`, with `StopControl`, `StopObservation` and `ErrUnquiesced`:
+  it cancels a run, confirms quiescence on every selected node, and only then
+  releases the run's reservations. Unknown, missing or unrelated terminal
+  receipts release nothing; while termination or release is unconfirmed the
+  reservations stay held and the call answers `ErrUnquiesced`.
+- `HTTPWorker.SubmitTimeout` bounds job admission separately from status and
+  cancellation. Zero keeps `Client.Timeout`, and a negative value is refused.
+- The `host` package, host measurements an installation calls explicitly:
+  `ProbeGPUs` and `ParseGPUs` read the cards through `nvidia-smi` and refuse
+  rather than report zero; `ReadAvailableRAM` reads `MemAvailable` from a named
+  meminfo file and `CgroupAvailable` a cgroup v2 limit and usage; `RAMBudget`,
+  `EstimateRAM` and `AdmitRAM` make the RAM admission budget explicit; and
+  `Housekeeping`, `Cleanup` and `Process` say what a node is allowed to clean.
+
 ### Changed
 
 - **Breaking.** `Fleet` embeds the non-generic `model.Model`, and its table is
@@ -22,6 +38,11 @@ a release is corrected by another release and never by moving a tag.
   `framework = ">= 0.50"`. The store route reads `name` from the body of the
   `POST` only, as Hesape now reads every `POST`. Routes, migrations, actions,
   policy decisions, tenant scoping and the control plane are unchanged.
+
+### Fixed
+
+- Reserving nodes for a run copies the run's node list, so reconciliation no
+  longer rewrites a dispatch receipt its caller kept.
 
 ## [0.3.0] - 2026-09-15
 
