@@ -3,8 +3,8 @@ module github.com/tayi-ai/arandu-fleet
 go 1.26.0
 
 require (
-	github.com/arandu-io/framework v0.50.2
-	github.com/arandu-io/hesape v0.48.0
+	github.com/arandu-io/framework v0.51.0
+	github.com/arandu-io/hesape v0.50.1
 )
 
 require (
